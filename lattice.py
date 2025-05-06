@@ -1,8 +1,10 @@
 """Implements an Ising model on a lattice"""
 
-from typing import Callable
+from typing import Callable, List, Any
 
 import numpy as np
+import networkx as nx
+import scipy.sparse as sp
 
 
 class IsingLattice:
@@ -14,15 +16,29 @@ class IsingLattice:
         T: float = 1.0,
         starting_config: np.ndarray | None = None,
     ):
-        self.lattice_size: np.ndarray = lattice_size
+        self.num_spins: np.ndarray = lattice_size
         self.J: np.ndarray = J
         self.h: np.ndarray = h
         self.lattice: np.ndarray = (
             starting_config
             if starting_config is not None
-            else np.random.choice([-1, 1], size=(lattice_size, lattice_size))
+            else np.random.choice([-1, 1], size=self.num_spins)
         )
         self.T = T
+        self.num_colors : int = 0
+        self.coloring : List[int] = np.array(self.compute_coloring())
+        
+        self.J = sp.csr_matrix(self.J)
+        
+    def compute_coloring(self) -> List[int]:
+        '''Given the weighted adjacency matrix, J compute the coloring'''
+        G = nx.from_numpy_array(self.J)
+        coloring = nx.coloring.greedy_color(G)
+        
+        self.num_colors = len(set(coloring.values()))
+        
+        return [coloring[v] for v in range(self.num_spins)]
+         
 
     def energy(self) -> float:
         """
@@ -48,7 +64,7 @@ class IsingLattice:
 
     def step(
         self,
-        update_fn: Callable[[np.ndarray, np.ndarray, np.ndarray, float], np.ndarray],
+        update_fn: Callable[[Any], np.ndarray],
     ) -> np.ndarray:
         """
         Update the lattice configuration using the provided update function.
@@ -62,7 +78,7 @@ class IsingLattice:
             np.ndarray: The updated lattice configuration.
         """
 
-        self.lattice = update_fn(self.lattice, self.J, self.h, self.T)
+        self.lattice = update_fn(self)
         
         return self.lattice
 

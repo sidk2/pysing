@@ -1,3 +1,5 @@
+import time
+
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -6,17 +8,19 @@ import algorithms
 import lattice_utils
 
 # --- Simulation Parameters ---
-L = 16  # Lattice dimension (e.g., 16x16)
+L = 64  # Lattice dimension (e.g., 16x16)
 N_spins = L * L
 J_coupling = 1.0  # Ferromagnetic coupling
 h_field = 0.0  # No external field for spontaneous magnetization
 
-temperatures = np.linspace(1.5, 3.5, 30)
+algorithm = algorithms.glauber_dynamics
+
+temperatures = np.linspace(1.5, 3.5, 40)
 
 num_equilibration_sweeps = (
-    2000  # Sweeps to reach equilibrium; this may need to be tuned
+    50  # Sweeps to reach equilibrium; this may need to be tuned
 )
-num_measurement_sweeps = 5000  # Sweeps for collecting data
+num_measurement_sweeps = 10000  # Sweeps for collecting data
 
 # Data storage
 avg_magnitudes = []
@@ -35,8 +39,12 @@ for T_current in temperatures:
 
     # 1. Equilibration
     for sweep in range(num_equilibration_sweeps):
-        for _ in range(N_spins):  # One sweep = N_spins attempted flips
-            ising_system.step(algorithms.glauber_dynamics)
+        if algorithm == algorithms.glauber_dynamics:
+            for _ in range(N_spins):  # One sweep
+                ising_system.step(algorithms.blocked_glauber)
+        elif algorithm == algorithms.blocked_glauber:
+            ising_system.step(algorithm)   
+        
         if sweep % 500 == 0:
             print(
                 f"  Equilibration sweep {sweep}/{num_equilibration_sweeps} at T={T_current:.3f}"
@@ -47,9 +55,13 @@ for T_current in temperatures:
     energies_at_T = []
 
     for sweep in range(num_measurement_sweeps):
-        for _ in range(N_spins):  # One sweep
-            ising_system.step(algorithms.glauber_dynamics)
-
+        
+        if algorithm == algorithms.glauber_dynamics:
+            for _ in range(N_spins):  # One sweep
+                ising_system.step(algorithms.blocked_glauber)
+        elif algorithm == algorithms.blocked_glauber:
+            ising_system.step(algorithm) 
+              
         current_M_total = ising_system.magnetization()
         current_E_total = ising_system.energy()
 

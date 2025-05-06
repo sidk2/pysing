@@ -13,12 +13,12 @@ N_spins = L * L
 J_coupling = 1.0  # Ferromagnetic coupling
 h_field = 0.0  # No external field for spontaneous magnetization
 
-algorithm = algorithms.glauber_dynamics
+algorithm = algorithms.blocked_glauber
 
 temperatures = np.linspace(1.5, 3.5, 40)
 
 num_equilibration_sweeps = (
-    50  # Sweeps to reach equilibrium; this may need to be tuned
+    5000  # Sweeps to reach equilibrium; this may need to be tuned
 )
 num_measurement_sweeps = 10000  # Sweeps for collecting data
 
@@ -41,7 +41,7 @@ for T_current in temperatures:
     for sweep in range(num_equilibration_sweeps):
         if algorithm == algorithms.glauber_dynamics:
             for _ in range(N_spins):  # One sweep
-                ising_system.step(algorithms.blocked_glauber)
+                ising_system.step(algorithms.glauber_dynamics)
         elif algorithm == algorithms.blocked_glauber:
             ising_system.step(algorithm)   
         
@@ -58,7 +58,7 @@ for T_current in temperatures:
         
         if algorithm == algorithms.glauber_dynamics:
             for _ in range(N_spins):  # One sweep
-                ising_system.step(algorithms.blocked_glauber)
+                ising_system.step(algorithms.glauber_dynamics)
         elif algorithm == algorithms.blocked_glauber:
             ising_system.step(algorithm) 
               

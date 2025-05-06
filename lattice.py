@@ -19,7 +19,7 @@ class IsingLattice:
         self.h: np.ndarray = h
         self.lattice: np.ndarray = (
             starting_config
-            if starting_config
+            if starting_config is not None
             else np.random.choice([-1, 1], size=(lattice_size, lattice_size))
         )
         self.T = T

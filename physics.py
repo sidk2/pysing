@@ -1,154 +1,114 @@
 import time
-
 import matplotlib.pyplot as plt
 import numpy as np
+import tqdm
 
 import lattice
 import algorithms
 import lattice_utils
 
 # --- Simulation Parameters ---
-L = 64  # Lattice dimension (e.g., 16x16)
-N_spins = L * L
+Lattice_sizes = [16, 32, 64, 128]
 J_coupling = 1.0  # Ferromagnetic coupling
-h_field = 0.0  # No external field for spontaneous magnetization
+h_field = 0.0     # No external field for spontaneous magnetization
 
 algorithm = algorithms.blocked_glauber
 
-temperatures = np.linspace(1.5, 3.5, 40)
+temperatures = np.linspace(1.5, 3.5, 30)
+num_equilibration_sweeps = 1000  # Sweeps to reach equilibrium; may need tuning
+num_measurement_sweeps = 100000    # Sweeps for collecting data
 
-num_equilibration_sweeps = (
-    5000  # Sweeps to reach equilibrium; this may need to be tuned
-)
-num_measurement_sweeps = 10000  # Sweeps for collecting data
+# Data storage dictionaries
+results = {L: {'mag': [], 'cv': [], 'chi': []} for L in Lattice_sizes}
 
-# Data storage
-avg_magnitudes = []
-specific_heats = []
-susceptibilities = []
+# Main simulation loop over lattice sizes
+for L in Lattice_sizes:
+    N_spins = L * L
+    print(f"Running simulations for L = {L}")
 
-# --- Main Simulation Loop ---
-for T_current in temperatures:
-    print(f"Simulating T = {T_current:.3f}")
+    for T_current in temperatures:
+        print(f"  Simulating T = {T_current:.3f}")
 
-    # Initialize lattice for current temperature
-    initial_config = np.ones(N_spins, dtype=int)
-    ising_system = lattice_utils.init_nearest_neighbours(
-        [L, L], J_coupling, h_field, T_current, initial_config
-    )
-
-    # 1. Equilibration
-    for sweep in range(num_equilibration_sweeps):
-        if algorithm == algorithms.glauber_dynamics:
-            for _ in range(N_spins):  # One sweep
-                ising_system.step(algorithms.glauber_dynamics)
-        elif algorithm == algorithms.blocked_glauber:
-            ising_system.step(algorithm)   
-        
-        if sweep % 500 == 0:
-            print(
-                f"  Equilibration sweep {sweep}/{num_equilibration_sweeps} at T={T_current:.3f}"
-            )
-
-    # 2. Measurement
-    magnetizations_at_T = []
-    energies_at_T = []
-
-    for sweep in range(num_measurement_sweeps):
-        
-        if algorithm == algorithms.glauber_dynamics:
-            for _ in range(N_spins):  # One sweep
-                ising_system.step(algorithms.glauber_dynamics)
-        elif algorithm == algorithms.blocked_glauber:
-            ising_system.step(algorithm) 
-              
-        current_M_total = ising_system.magnetization()
-        current_E_total = ising_system.energy()
-
-        magnetizations_at_T.append(current_M_total)
-        energies_at_T.append(current_E_total)
-        if sweep % 1000 == 0:
-            print(
-                f"  Measurement sweep {sweep}/{num_measurement_sweeps} at T={T_current:.3f}"
-            )
-
-    # Calculate averages (magnetization is total, energy is total)
-    # Absolute magnetization per spin <|m|>
-    avg_abs_M_per_spin = np.mean(np.abs(magnetizations_at_T)) / N_spins
-    avg_magnitudes.append(avg_abs_M_per_spin)
-
-    # For heat capacity, magnetic susceptibility, we need <E>, <E^2>, <M^2>, <|M|>
-    # Note: magnetizations_at_T contains M_total
-    # energies_at_T contains E_total
-
-    E_array = np.array(energies_at_T)
-    M_array = np.array(magnetizations_at_T)
-
-    mean_E = np.mean(E_array)
-    mean_E_sq = np.mean(E_array**2)
-
-    mean_M_sq = np.mean(M_array**2)
-    # For susceptibility, <|M_tot|> is needed, which is np.mean(np.abs(M_array))
-    mean_abs_M_tot = np.mean(np.abs(M_array))
-
-    # Specific Heat (per spin) Cv = (<E^2> - <E>^2) / (N * T^2) (k_B=1)
-    if T_current == 0:  # Avoid division by zero
-        specific_heat = 0  # Or handle as appropriate, Cv -> 0 as T -> 0
-    else:
-        specific_heat = (mean_E_sq - mean_E**2) / (N_spins * T_current**2)
-    specific_heats.append(specific_heat)
-
-    # Magnetic Susceptibility (per spin) Chi = (<M_tot^2> - <|M_tot|>^2) / (N * T) (k_B=1)
-    if T_current == 0:
-        susceptibility = (
-            0  # Chi might diverge or be ill-defined at T=0 depending on definition
+        # Initialize lattice for current temperature
+        initial_config = np.ones(N_spins, dtype=int)
+        ising_system = lattice_utils.init_nearest_neighbours(
+            [L, L], J_coupling, h_field, T_current, initial_config
         )
-    else:
-        susceptibility = (mean_M_sq - mean_abs_M_tot**2) / (N_spins * T_current)
-    susceptibilities.append(susceptibility)
 
-# --- 3. Plotting ---
+        # 1. Equilibration
+        for _ in tqdm.tqdm(range(num_equilibration_sweeps), desc="Equilibration", leave=False):
+            if algorithm == algorithms.glauber_dynamics:
+                for _ in range(N_spins):
+                    ising_system.step(algorithms.glauber_dynamics)
+            else:
+                # blocked_glauber or other stepping function
+                ising_system.step(algorithm)
+
+        # 2. Measurement
+        magnetizations = []
+        energies = []
+        for _ in tqdm.tqdm(range(num_measurement_sweeps), desc="Measurement", leave=False):
+            if algorithm == algorithms.glauber_dynamics:
+                for _ in range(N_spins):
+                    ising_system.step(algorithms.glauber_dynamics)
+            else:
+                ising_system.step(algorithm)
+            
+            magnetizations.append(ising_system.magnetization())
+            energies.append(ising_system.energy())
+
+        # Compute observables
+        M_array = np.array(magnetizations)
+        E_array = np.array(energies)
+        mean_abs_M = np.mean(np.abs(M_array))
+        mean_E = np.mean(E_array)
+        mean_E_sq = np.mean(E_array**2)
+        mean_M_sq = np.mean(M_array**2)
+
+        # Average absolute magnetization per spin
+        mag = mean_abs_M / N_spins
+        # Specific heat per spin
+        cv = (mean_E_sq - mean_E**2) / (N_spins * T_current**2)
+        # Susceptibility per spin
+        chi = (mean_M_sq - mean_abs_M**2) / (N_spins * T_current)
+
+        results[L]['mag'].append(mag)
+        results[L]['cv'].append(cv)
+        results[L]['chi'].append(chi)
+
+# Plotting all sizes on the same figure
 plt.figure(figsize=(18, 5))
 
+# 1. Magnetization
 plt.subplot(1, 3, 1)
-plt.plot(temperatures, avg_magnitudes, "o-", label=f"L={L}")
+for L in Lattice_sizes:
+    plt.plot(temperatures, results[L]['mag'], marker='o', label=f"L={L}")
 plt.xlabel("Temperature (T)")
-plt.ylabel("Average Absolute Magnetization per Spin <|m|>")
+plt.ylabel("<|m|> per spin")
 plt.title("Magnetization vs. Temperature")
-plt.axvline(
-    2.269 * J_coupling,
-    color="r",
-    linestyle="--",
-    label=f"$T_c$ (approx={2.269*J_coupling:.2f})",
-)
+plt.axvline(2.269 * J_coupling, linestyle='--', color='k', label="T_c")
 plt.legend()
 plt.grid(True)
 
+# 2. Specific Heat
 plt.subplot(1, 3, 2)
-plt.plot(temperatures, specific_heats, "s-", label=f"L={L}")
+for L in Lattice_sizes:
+    plt.plot(temperatures, results[L]['cv'], marker='s', label=f"L={L}")
 plt.xlabel("Temperature (T)")
-plt.ylabel("Specific Heat ($C_v$) per Spin")
+plt.ylabel("C_v per spin")
 plt.title("Specific Heat vs. Temperature")
-plt.axvline(
-    2.269 * J_coupling,
-    color="r",
-    linestyle="--",
-    label=f"$T_c$ (approx={2.269*J_coupling:.2f})",
-)
+plt.axvline(2.269 * J_coupling, linestyle='--', color='k')
 plt.legend()
 plt.grid(True)
 
+# 3. Susceptibility
 plt.subplot(1, 3, 3)
-plt.plot(temperatures, susceptibilities, "^-", label=f"L={L}")
+for L in Lattice_sizes:
+    plt.plot(temperatures, results[L]['chi'], marker='^', label=f"L={L}")
 plt.xlabel("Temperature (T)")
-plt.ylabel("Magnetic Susceptibility ($\chi$) per Spin")
+plt.ylabel("\u03C7 per spin")
 plt.title("Susceptibility vs. Temperature")
-plt.axvline(
-    2.269 * J_coupling,
-    color="r",
-    linestyle="--",
-    label=f"$T_c$ (approx={2.269*J_coupling:.2f})",
-)
+plt.axvline(2.269 * J_coupling, linestyle='--', color='k')
 plt.legend()
 plt.grid(True)
 

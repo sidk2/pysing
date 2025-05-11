@@ -5,52 +5,37 @@ import tqdm
 import algorithms
 import lattice_utils
 
-def autocorr_time(O, window_factor=5, min_len=10):
-    """
-    Estimate the integrated autocorrelation time of series O.
-    Uses a window cut-off Tcut = min(len(O)-1, window_factor*tau_int).
 
-    Returns:
-      tau_int: float
-      C:      1D array of autocorrelations up to lag len(O)-1
-    """
-    N = len(O)
-    O = np.asarray(O, dtype=float)
-    O_mean = O.mean()
-    O_var  = O.var(ddof=0)
-    
-    # full autocorrelation via FFT
-    f = np.fft.rfft(O - O_mean, n=2*N)
-    acf = np.fft.irfft(f * np.conjugate(f))[:N] / N
-    C = acf / O_var
+def sample_autocovariance(x,tmax):
+    '''Compute the sample autocorrelation of the time series x 
+    for t = 0,1,...,tmax-1.'''
+    x_shifted = x - np.mean(x)
+    return np.array([np.dot(x_shifted[:len(x)-t],x_shifted[t:])/(len(x)-t) 
+                     for t in range(tmax)])
 
-    # self-consistent window
-    tau_int = 1.0
-    for _ in range(10):
-        Tcut = min(N-1, int(window_factor * tau_int))
-        tau_int_new = 1.0 + 2.0 * C[1:Tcut+1].sum()
-        if abs(tau_int_new - tau_int) < 1e-3:
-            break
-        tau_int = tau_int_new
-    return tau_int, C
+def find_correlation_time(autocov):
+    '''Return the index of the first entry that is smaller than autocov[0]/e or the length of autocov if none are smaller.'''
+    smaller = np.where(autocov < np.exp(-1)*autocov[0])[0]
+    return smaller[0] if len(smaller) > 0 else len(autocov)
 
 # --- Simulation Parameters ---
 lattice_dims = [8, 16, 32, 64, 128]
+dimension = 1
 J_coupling = 1.0  # Ferromagnetic coupling
 h_field = 0.0     # No external field for spontaneous magnetization
 
 algorithm = algorithms.blocked_glauber
 
 temperatures = np.linspace(1, 3, 30)
-num_equilibration_sweeps = 1000  # Sweeps to reach equilibrium; may need tuning
-num_measurement_sweeps = 40000    # Sweeps for collecting data
+num_equilibration_sweeps = 0  # Sweeps to reach equilibrium; may need tuning
+num_measurement_sweeps = 5000    # Sweeps for collecting data
 
 # Data storage dictionaries
 results = {L: {'mag': [], 'cv': [], 'chi': [], 'tau': []} for L in lattice_dims}
 
 # Main simulation loop over lattice sizes
 for L in lattice_dims:
-    N_spins = L * L
+    N_spins = L**dimension
     print(f"Running simulations for L = {L}")
 
     for T_current in temperatures:
@@ -59,7 +44,7 @@ for L in lattice_dims:
         # Initialize lattice for current temperature
         initial_config = np.ones(N_spins, dtype=int)
         ising_system = lattice_utils.init_nearest_neighbours(
-            [L, L], J_coupling, h_field, T_current, initial_config
+            [L] * dimension, J_coupling, h_field, T_current, initial_config
         )
 
         # 1. Equilibration
@@ -100,8 +85,7 @@ for L in lattice_dims:
         # Susceptibility per spin
         chi = (mean_M_sq - mean_abs_M**2) / (N_spins * T_current)
         
-        tau_M, C_M = autocorr_time(M_array)
-
+        tau_M = find_correlation_time(sample_autocovariance(M_array, len(M_array)))
         results[L]['mag'].append(mag)
         results[L]['cv'].append(cv)
         results[L]['chi'].append(chi)
@@ -144,7 +128,8 @@ plt.legend()
 plt.grid(True)
 
 plt.tight_layout()
-plt.show()
+plt.savefig("pysing/figures/physics.png")
+plt.close()
 
 # 2. Autocorrelation Time vs Temperature
 plt.figure(figsize=(6,5))
@@ -156,4 +141,5 @@ plt.title("Equilibration Time vs. Temperature")
 plt.axvline(2.269 * J_coupling, linestyle='--', color='k')
 plt.legend()
 plt.grid(True)
-plt.show()
+plt.savefig("pysing/figures/autocorrelation.png")
+plt.close()

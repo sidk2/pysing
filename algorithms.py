@@ -57,3 +57,32 @@ def blocked_glauber(ising: lattice.IsingLattice) -> np.ndarray:
     s_new[idxs[to_flip]] *= -1
 
     return s_new
+
+def wolff_dynamics(model: lattice.IsingLattice) -> np.ndarray:    
+    N = model.num_spins
+    i = np.random.randint(N)  # Seed site
+    spin_value = model.lattice[i]
+    
+    checked_pairs = set()
+
+    stack = [i]
+    model.lattice[i] *= -1  
+
+    beta = 1.0 / (BOLTZMANN_CONSTANT * model.T)
+
+    while stack:
+        site = stack.pop()
+        
+        neighbors = np.nonzero(model.J[site, :])[1]
+        for neighbor in neighbors:
+            if (site, neighbor) not in checked_pairs and (neighbor, site) not in checked_pairs:    
+                checked_pairs.add((site, neighbor))
+                checked_pairs.add((neighbor, site))
+                if model.lattice[neighbor] * spin_value > 0:
+                    J_ij = model.J[site, neighbor]
+                    p_add = 1 - np.exp(-2 * beta * J_ij)                    # p_add = 0.5
+                    if np.random.rand() < p_add:
+                        model.lattice[neighbor] *= -1
+                        stack.append(neighbor)
+
+    return model.lattice    

@@ -86,3 +86,64 @@ def wolff_dynamics(model: lattice.IsingLattice) -> np.ndarray:
                         stack.append(neighbor)
 
     return model.lattice    
+
+def swendsen_wang(state, J, T):
+    """
+    Perform the Swendsen-Wang algorithm on the lattice.
+
+    Args:
+        state: The original state of the lattice to perform the algorithm on
+        J: The coupling constant
+        T: The temperature
+
+    Returns:
+        np.ndarray: The lattice after performing one step of Swendsen-Wang algorithm.
+    """
+    
+    def calculate_bond_probability(J, T):
+        beta = 1 / T
+        return 1 - np.exp(-2 * beta * J)
+    
+    L = state.shape[0]
+    p = calculate_bond_probability(J, T)
+    visited = np.zeros((L, L), dtype=bool)
+    clusters = []
+
+    # Helper function: Find a cluster using breadth-first search (BFS)
+    def bfs(start_x, start_y):
+        cluster = [(start_x, start_y)]
+        queue = [(start_x, start_y)]
+        visited[start_x, start_y] = True
+
+        # Directions: up, down, left, right (with periodic boundary conditions)
+        directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+
+        while queue:
+            current_x, current_y = queue.pop(0)
+            for dx, dy in directions:
+                neighbor_x = (current_x + dx) % L
+                neighbor_y = (current_y + dy) % L
+
+                # If a neighbor has the same spin value and the bond probability criterion is met, it belongs to the same cluster.
+                # Check if neighbor is not visited and has the same spin
+                if not visited[neighbor_x, neighbor_y] and state[current_x, current_y] == state[neighbor_x, neighbor_y]:
+                    # Add neighbor to cluster with probability p
+                    if np.random.rand() < p:
+                        visited[neighbor_x, neighbor_y] = True
+                        cluster.append((neighbor_x, neighbor_y))
+                        queue.append((neighbor_x, neighbor_y))
+        return cluster
+
+    # Find all clusters
+    for x in range(L):
+        for y in range(L):
+            if not visited[x, y]:
+                cluster = bfs(x, y)
+                clusters.append(cluster)
+
+    # Now we have all clusters, we can flip them with a certain probability (once per cluster)
+    # the flipped cluster do not conbine with other clusters in this step
+    for cluster in clusters:
+        if np.random.rand() < 0.5:
+            for (x, y) in cluster:
+                state[x, y] *= -1

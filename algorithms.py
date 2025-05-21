@@ -163,7 +163,7 @@ def union(parent, i, j):
     if ri != rj:
         parent[rj] = ri
 
-def swendsen_wang(ising):
+def swendsen_wang(ising: lattice.IsingLattice):
     spins = ising.lattice
     N     = ising.num_spins
     beta  = 1/ising.T

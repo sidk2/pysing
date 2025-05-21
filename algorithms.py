@@ -1,4 +1,5 @@
 import numpy as np
+import numba
 
 import lattice
 
@@ -68,7 +69,7 @@ def wolff_dynamics(model: lattice.IsingLattice) -> np.ndarray:
     stack = [i]
     model.lattice[i] *= -1  
 
-    beta = 1.0 / (BOLTZMANN_CONSTANT * model.T)
+    beta = 1.0 / model.T
 
     while stack:
         site = stack.pop()
@@ -87,63 +88,121 @@ def wolff_dynamics(model: lattice.IsingLattice) -> np.ndarray:
 
     return model.lattice    
 
-def swendsen_wang(state, J, T):
-    """
-    Perform the Swendsen-Wang algorithm on the lattice.
+# def swendsen_wang(ising: lattice.IsingLattice) -> np.ndarray:
+#     """
+#     One Swendsen–Wang update on an IsingLattice. Uses Union–Find algorithm for fast cluster finding.
 
-    Args:
-        state: The original state of the lattice to perform the algorithm on
-        J: The coupling constant
-        T: The temperature
+#     Args:
+#         ising: IsingLattice instance, with
+#             - ising.lattice: 1D array of spins ±1, length N
+#             - ising.J: CSR sparse adjacency matrix of couplings (shape N×N)
+#             - ising.T: temperature
 
-    Returns:
-        np.ndarray: The lattice after performing one step of Swendsen-Wang algorithm.
-    """
-    
-    def calculate_bond_probability(J, T):
-        beta = 1 / T
-        return 1 - np.exp(-2 * beta * J)
-    
-    L = state.shape[0]
-    p = calculate_bond_probability(J, T)
-    visited = np.zeros((L, L), dtype=bool)
-    clusters = []
+#     Returns:
+#         Updated spin configuration (also stored back in ising.lattice).
+#     """
+#     spins = ising.lattice
+#     J = ising.J.tocsr()       # CSR format
+#     beta = 1.0 / ising.T
 
-    # Helper function: Find a cluster using breadth-first search (BFS)
-    def bfs(start_x, start_y):
-        cluster = [(start_x, start_y)]
-        queue = [(start_x, start_y)]
-        visited[start_x, start_y] = True
+#     N = ising.num_spins
+#     parent = np.arange(N)     # union-find parent pointers
 
-        # Directions: up, down, left, right (with periodic boundary conditions)
-        directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+#     def find(i):
+#         # path‐compressed find
+#         while parent[i] != i:
+#             parent[i] = parent[parent[i]]
+#             i = parent[i]
+#         return i
 
-        while queue:
-            current_x, current_y = queue.pop(0)
-            for dx, dy in directions:
-                neighbor_x = (current_x + dx) % L
-                neighbor_y = (current_y + dy) % L
+#     def union(i, j):
+#         ri, rj = find(i), find(j)
+#         if ri != rj:
+#             parent[rj] = ri
 
-                # If a neighbor has the same spin value and the bond probability criterion is met, it belongs to the same cluster.
-                # Check if neighbor is not visited and has the same spin
-                if not visited[neighbor_x, neighbor_y] and state[current_x, current_y] == state[neighbor_x, neighbor_y]:
-                    # Add neighbor to cluster with probability p
-                    if np.random.rand() < p:
-                        visited[neighbor_x, neighbor_y] = True
-                        cluster.append((neighbor_x, neighbor_y))
-                        queue.append((neighbor_x, neighbor_y))
-        return cluster
+#     # For each edge (i,j) with coupling Jij, if spins[i]==spins[j], bond with prob p=1−exp(−2*Jij/T)
+#     rowptr, cols, data = J.indptr, J.indices, J.data
+#     for i in range(N):
+#         start, end = rowptr[i], rowptr[i+1]
+#         for idx in range(start, end):
+#             j = cols[idx]
+#             if j <= i:
+#                 continue   # only process each pair once
+#             if spins[i] != spins[j]:
+#                 continue
+#             Jij = data[idx]
+#             p_bond = 1.0 - np.exp(-2.0 * beta * Jij)
+#             if np.random.rand() < p_bond:
+#                 union(i, j)
 
-    # Find all clusters
-    for x in range(L):
-        for y in range(L):
-            if not visited[x, y]:
-                cluster = bfs(x, y)
-                clusters.append(cluster)
+#     clusters = {}
+#     for i in range(N):
+#         root = find(i)
+#         clusters.setdefault(root, []).append(i)
 
-    # Now we have all clusters, we can flip them with a certain probability (once per cluster)
-    # the flipped cluster do not conbine with other clusters in this step
-    for cluster in clusters:
-        if np.random.rand() < 0.5:
-            for (x, y) in cluster:
-                state[x, y] *= -1
+#     # Flip each cluster with probability 1/2
+#     for cluster_sites in clusters.values():
+#         if np.random.rand() < 0.5:
+#             spins[cluster_sites] *= -1
+
+#     # store back and return
+#     ising.lattice = spins
+#     return spins
+
+
+@numba.njit
+def find(parent, i):
+    while parent[i] != i:
+        parent[i] = parent[parent[i]]
+        i = parent[i]
+    return i
+
+@numba.njit
+def union(parent, i, j):
+    ri, rj = find(parent, i), find(parent, j)
+    if ri != rj:
+        parent[rj] = ri
+
+def swendsen_wang(ising):
+    spins = ising.lattice
+    N     = ising.num_spins
+    beta  = 1/ising.T
+
+    # 1) extract edges
+    coo   = ising.J.tocoo()
+    maskU = coo.col > coo.row
+    rows  = coo.row[maskU]; cols = coo.col[maskU]
+    Js    = coo.data[maskU]
+
+    # 2) same‐spin mask
+    same  = (spins[rows] == spins[cols])
+    rows, cols, Js = rows[same], cols[same], Js[same]
+
+    # 3) bond mask
+    p_bonds = 1 - np.exp(-2*beta * Js)
+    r       = np.random.rand(p_bonds.size)
+    active  = np.nonzero(r < p_bonds)[0]
+
+    # 4) union‐find in Numba
+    parent = np.arange(N)
+    for k in active:
+        union(parent, rows[k], cols[k])
+
+    # 5) build & flip clusters via roots array
+    roots = np.empty(N, dtype=np.int32)
+    for i in range(N):
+        roots[i] = find(parent, i)
+    order     = np.argsort(roots)
+    roots_s   = roots[order]
+
+    # scan runs of equal roots and flip
+    start = 0
+    for end in range(1, N+1):
+        if end==N or roots_s[end] != roots_s[start]:
+            cluster_idx = order[start:end]
+            if np.random.rand() < 0.5:
+                spins[cluster_idx] *= -1
+            start = end
+
+    ising.lattice = spins
+    return spins

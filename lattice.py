@@ -15,6 +15,7 @@ class IsingLattice:
         h: np.ndarray,
         T: float = 1.0,
         starting_config: np.ndarray | None = None,
+        periodic_bc: bool = True,
     ):
         self.num_spins: np.ndarray = lattice_size
         self.J: np.ndarray = J
@@ -32,7 +33,8 @@ class IsingLattice:
         
     def compute_coloring(self) -> List[int]:
         '''Given the weighted adjacency matrix, J compute the coloring'''
-        G = nx.from_numpy_array(self.J)
+        if isinstance(self.J, np.ndarray): self.J = sp.csr_matrix(self.J)
+        G = nx.from_scipy_sparse_array(self.J)
         coloring = nx.coloring.greedy_color(G)
         
         self.num_colors = len(set(coloring.values()))

@@ -12,6 +12,7 @@ def init_nearest_neighbours(
     external_field: float,
     T: float = 1.0,
     starting_config: np.ndarray | None = None,
+    periodic: bool = True,
 ) -> lattice.IsingLattice:
     """
     Initialize a lattice with nearest neighbour interactions.
@@ -25,8 +26,8 @@ def init_nearest_neighbours(
         lattice.Lattice: A lattice with nearest neighbour interactions.
     """
     num_spins: int = np.prod(lattice_dimensions)
-    g: nx.Graph = nx.grid_graph(lattice_dimensions)
-    coupling_matrix: np.ndarray = coupling_strength * np.array(nx.to_numpy_array(g))
+    g: nx.Graph = nx.grid_graph(lattice_dimensions, periodic=periodic)
+    coupling_matrix: np.ndarray = coupling_strength * nx.to_scipy_sparse_array(g)
     bias_vector: np.ndarray = external_field * np.ones(num_spins)
 
     return lattice.IsingLattice(num_spins, coupling_matrix, bias_vector, T, starting_config)

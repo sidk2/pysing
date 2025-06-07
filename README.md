@@ -1,12 +1,14 @@
 # pysing
 
-Code depends on the following libraries: 
+Code depends on the following libraries, which can be installed via pip: 
 - matplotlib
 - numpy
 - scipy
 - tqdm
 - numba
 - networkx
+
+`pip install matplotlib scipy numpy tqdm numba networkx`
 
 To run the code to produce the plots of temperature dependent physics, run the physics.py script. To produce the block spin plots, run rg2.py.
 
